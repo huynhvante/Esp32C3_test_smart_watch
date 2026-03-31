@@ -1,0 +1,1 @@
+## Cảm biến → Lấy dữ liệu IR/Red → Lọc DC → Lọc Kalman → Lọc Bandpass → Phát hiện đỉnh → Tính BPM → Tính SpO2 → Hiển thị
