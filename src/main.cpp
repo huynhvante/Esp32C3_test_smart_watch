@@ -20,7 +20,7 @@ Adafruit_SSD1306 oled(OLED_W, OLED_H, &Wire, OLED_RST);
 #define CFG_SAMPLE_AVG         4
 #define CFG_SAMPLE_RATE      100   // Hz
 #define CFG_PULSE_WIDTH      411
-#define CFG_ADC_RANGE      16384/2
+#define CFG_ADC_RANGE      16384
 #define CFG_LED_MODE_RED_IR    2
 
 #define FINGER_THR         30000UL
@@ -33,7 +33,7 @@ Adafruit_SSD1306 oled(OLED_W, OLED_H, &Wire, OLED_RST);
 // ── Peak detection ───────────────────────────────────────
 #define PEAK_THRESHOLD_FACTOR   0.350f
 #define PEAK_MIN_DISTANCE_MS    100
-#define PEAK_MAX_DISTANCE_MS    800
+#define PEAK_MAX_DISTANCE_MS    1500
 
 // ── HR ───────────────────────────────────────────────────
 #define BPM_HIST_SIZE   5
@@ -65,10 +65,10 @@ Adafruit_SSD1306 oled(OLED_W, OLED_H, &Wire, OLED_RST);
 //    4. Clamp trong [AGC_LED_MIN, AGC_LED_MAX]
 //    5. Chỉ điều chỉnh sau warmup để tránh nhiễu lúc đặt tay
 // ═══════════════════════════════════════════════════════════
-#define AGC_DC_TARGET_LOW    20000.0f   // DC quá thấp → LED quá yếu
+#define AGC_DC_TARGET_LOW    15000.0f   // DC quá thấp → LED quá yếu
 #define AGC_DC_TARGET_HIGH  50000.0f   // DC quá cao  → LED quá mạnh / bão hòa
 #define AGC_DC_OPTIMAL      100000.0f   // Điểm tối ưu muốn hướng đến
-#define AGC_LED_MIN         0x0F        // Brightness tối thiểu (tránh tắt hẳn)
+#define AGC_LED_MIN         0x3F        // Brightness tối thiểu (tránh tắt hẳn)
 #define AGC_LED_MAX         0xFF        // Brightness tối đa
 #define AGC_STEP_UP         0x08        // Bước tăng mỗi lần điều chỉnh
 #define AGC_STEP_DOWN       0x04        // Bước giảm nhỏ hơn để tránh dao động
@@ -227,7 +227,7 @@ float    peakBuf[3]   = {};
 uint32_t peakTimes[3] = {};
 uint32_t lastPeakMs   = 0;
 float    ampMax       = 0;
-const float ampDecay  = 0.90f;
+const float ampDecay  = 0.97f;
 
 int warmupCount=0;
 
@@ -253,6 +253,7 @@ float waveBuf[WAVE_W]={};
 int   waveIdx=0;
 
 // ── BPM helpers ──────────────────────────────────────────
+
 static int32_t calcBPM(){
     if(rriCount<2) return 0;
     uint32_t sum=0;
@@ -376,7 +377,12 @@ static void processSample(uint32_t rawIR, uint32_t rawRed, uint32_t nowMs){
 
         peakNow = false;
 
-        float dynamicThr = max(PEAK_THRESHOLD_FACTOR * ampMax, 50.0f);
+        // float dynamicThr = max(PEAK_THRESHOLD_FACTOR * ampMax, ampMax * 0.25f);
+        float dynamicThr;
+        if (ampMax > 500)
+            dynamicThr = PEAK_THRESHOLD_FACTOR * ampMax;
+        else
+            dynamicThr = ampMax * 0.15f;
 
         bool isPeak = (peakBuf[1] > peakBuf[0]) &&
                       (peakBuf[1] > peakBuf[2]) &&
@@ -384,7 +390,14 @@ static void processSample(uint32_t rawIR, uint32_t rawRed, uint32_t nowMs){
 
         if(isPeak && (peakTimes[1] - lastPeakMs) >= PEAK_MIN_DISTANCE_MS) {
             uint32_t rri = peakTimes[1] - lastPeakMs;
-            if(lastPeakMs != 0 && rri >= 350 && rri <= 800) {
+            if (rri > 1200 && ampMax < 80) {
+                Serial.println("Rejected low-signal slow beat");
+                return;
+            }
+            int ampThr = (ampMax > 500) ? 200 : 50;
+
+            if(lastPeakMs != 0 && rri >= 300 && rri <= 1500 && ampMax > ampThr)
+            {
                 rriHistory[rriHead] = rri;
                 rriHead = (rriHead + 1) % BPM_HIST_SIZE;
                 if(rriCount < BPM_HIST_SIZE) rriCount++;
@@ -425,6 +438,7 @@ static void processSample(uint32_t rawIR, uint32_t rawRed, uint32_t nowMs){
 
 
 // ── renderOLED ───────────────────────────────────────────
+
 static void renderOLED(){
     oled.clearDisplay();
 
